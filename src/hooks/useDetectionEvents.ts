@@ -2,8 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { RiskLevel } from "../types";
 
+// Mismo criterio que en services/api.ts: local en desarrollo, Modal en
+// el build de producción, y VITE_API_URL manda si está definida.
 const API_BASE =
-  import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://yanfilybacatorres--mindlms-api-fastapi-app.modal.run/api/v1"
+    : "http://localhost:8000/api/v1");
 
 /** Marcadores lingüísticos extraídos del texto (0..1 = proporción). */
 export interface LinguisticMarkers {

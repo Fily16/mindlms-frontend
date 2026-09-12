@@ -1,6 +1,13 @@
 import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api/v1";
+// En desarrollo apunta al backend local; en el build de producción, al
+// desplegado en Modal. VITE_API_URL sigue teniendo prioridad si se define,
+// pero así no hace falta configurar nada en el panel de hosting.
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.PROD
+    ? "https://yanfilybacatorres--mindlms-api-fastapi-app.modal.run/api/v1"
+    : "http://localhost:8000/api/v1");
 
 const api = axios.create({
   baseURL: API_BASE_URL,
