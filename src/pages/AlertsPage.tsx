@@ -197,12 +197,31 @@ export default function AlertsPage() {
   const [statusFilter, setStatusFilter] = useState("");
   const [selected, setSelected] = useState<Alert | null>(null);
   const [newNote, setNewNote] = useState("");
-  // Panel de acción: "note" = nota interna, "message" = mensaje al alumno
-  const [actionTab, setActionTab] = useState<"note" | "message">("note");
+  // Panel de acción: nota interna, mensaje al alumno, validación del
+  // riesgo calculado por el modelo, e informe de evaluación.
+  const [actionTab, setActionTab] = useState<
+    "note" | "message" | "risk" | "report"
+  >("note");
   const [msgToStudent, setMsgToStudent] = useState("");
   const [msgFeedback, setMsgFeedback] = useState<
     { kind: "ok" | "err"; text: string } | null
   >(null);
+  // Validación clínica del nivel que calculó el modelo (HU0026 / HU0027)
+  const [nivelAjustado, setNivelAjustado] = useState<RiskLevel>("medio");
+  const [motivoAjuste, setMotivoAjuste] = useState("");
+  // Informe de evaluación y derivación (HU0028 / HU0029)
+  const [informe, setInforme] = useState("");
+  const [derivacion, setDerivacion] = useState("");
+  const [comunicado, setComunicado] = useState(false);
+
+  // Expediente del estudiante que se está consultando: informes previos.
+  // Se recarga junto con las alertas para que un informe recién guardado
+  // aparezca sin tener que refrescar la página.
+  const { data: expediente = [] } = useQuery({
+    queryKey: ["student-reports", studentFilter],
+    queryFn: () => alertsService.getStudentReports(studentFilter),
+    enabled: Boolean(studentFilter),
+  });
 
   const { data: alerts = [], isLoading } = useQuery<Alert[]>({
     queryKey: ["alerts", riskFilter, statusFilter, studentFilter],
@@ -250,6 +269,66 @@ export default function AlertsPage() {
         alertsService.getAlertDetail(selected.id).then(setSelected);
       }
     },
+  });
+
+  // Confirmar o corregir el nivel que calculó el modelo. El nivel
+  // automático no se pierde: el backend lo conserva para poder comparar
+  // después el criterio del psicólogo con el del modelo.
+  const riskMutation = useMutation({
+    mutationFn: (args: {
+      id: string;
+      decision: "confirmado" | "ajustado";
+      nivel?: RiskLevel;
+      motivo?: string;
+    }) =>
+      alertsService.validateRisk(args.id, {
+        decision: args.decision,
+        nivel: args.nivel,
+        motivo: args.motivo,
+      }),
+    onSuccess: (data) => {
+      setMotivoAjuste("");
+      setMsgFeedback({
+        kind: "ok",
+        text:
+          data.decision === "confirmado"
+            ? "Riesgo confirmado: coincide con la evaluación del modelo."
+            : `Riesgo corregido a ${data.nivel_final}. Queda registrado el motivo.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+    },
+    onError: () =>
+      setMsgFeedback({
+        kind: "err",
+        text: "Para corregir el nivel hay que indicar el motivo.",
+      }),
+  });
+
+  const reportMutation = useMutation({
+    mutationFn: (args: {
+      id: string;
+      contenido: string;
+      derivacion?: string;
+      comunicado?: boolean;
+    }) =>
+      alertsService.createReport(args.id, {
+        contenido: args.contenido,
+        derivacion: args.derivacion,
+        comunicado: args.comunicado,
+      }),
+    onSuccess: () => {
+      setInforme("");
+      setDerivacion("");
+      setComunicado(false);
+      setMsgFeedback({
+        kind: "ok",
+        text: "Informe registrado en el expediente del estudiante.",
+      });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["student-reports"] });
+    },
+    onError: () =>
+      setMsgFeedback({ kind: "err", text: "No se pudo registrar el informe." }),
   });
 
   const messageMutation = useMutation({
@@ -338,6 +417,44 @@ export default function AlertsPage() {
               </span>
             )}
           </p>
+
+          {/* Expediente: informes previos del estudiante consultado */}
+          {studentFilter && expediente.length > 0 && (
+            <div className="mt-5 rounded-2xl border border-pine-900/10 bg-white/60 p-4">
+              <p className="text-[12px] font-semibold uppercase tracking-wider text-pine-900/45">
+                Expediente · {expediente.length} informe
+                {expediente.length !== 1 ? "s" : ""} previo
+                {expediente.length !== 1 ? "s" : ""}
+              </p>
+              <div className="mt-3 space-y-3">
+                {expediente.map((r) => (
+                  <div
+                    key={r.id}
+                    className="rounded-xl border border-pine-900/8 bg-white p-3"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 text-[11.5px] text-pine-900/45">
+                      <span>{new Date(r.fecha).toLocaleDateString()}</span>
+                      <span>·</span>
+                      <span>{r.autor}</span>
+                      {r.comunicado && (
+                        <span className="rounded-full bg-leaf-600/10 px-2 py-0.5 font-semibold text-leaf-700">
+                          Comunicado al estudiante
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1.5 text-[13.5px] leading-relaxed text-pine-900/80">
+                      {r.contenido}
+                    </p>
+                    {r.derivacion && (
+                      <p className="mt-2 rounded-lg bg-pine-900/5 px-3 py-2 text-[12.5px] text-pine-900/65">
+                        <strong>Derivación:</strong> {r.derivacion}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </Reveal>
 
         {/* Filtros como chips con contadores */}
@@ -620,7 +737,147 @@ export default function AlertsPage() {
                     >
                       Mensaje al alumno
                     </button>
+                    <button
+                      onClick={() => setActionTab("risk")}
+                      className={`flex-1 rounded-full py-1.5 text-[12px] font-semibold transition-all ${
+                        actionTab === "risk"
+                          ? "bg-white text-pine-900 shadow-sm"
+                          : "text-pine-900/50 hover:text-pine-900/70"
+                      }`}
+                    >
+                      Validar riesgo
+                    </button>
+                    <button
+                      onClick={() => setActionTab("report")}
+                      className={`flex-1 rounded-full py-1.5 text-[12px] font-semibold transition-all ${
+                        actionTab === "report"
+                          ? "bg-white text-pine-900 shadow-sm"
+                          : "text-pine-900/50 hover:text-pine-900/70"
+                      }`}
+                    >
+                      Informe
+                    </button>
                   </div>
+
+                  {/* Panel: Validar el riesgo calculado por el modelo */}
+                  {actionTab === "risk" && (
+                    <div className="mt-3 space-y-3">
+                      <p className="text-[11.5px] text-pine-900/50">
+                        El modelo clasificó este caso como{" "}
+                        <strong className="text-pine-900/70">
+                          riesgo {selected.risk_level}
+                        </strong>
+                        . Confirma si coincide con tu criterio clínico o
+                        corrígelo indicando por qué.
+                      </p>
+
+                      <button
+                        onClick={() =>
+                          riskMutation.mutate({
+                            id: selected.id,
+                            decision: "confirmado",
+                          })
+                        }
+                        disabled={riskMutation.isPending}
+                        className="w-full rounded-full bg-leaf-600 py-2.5 text-[13px] font-semibold text-white shadow-md transition-all hover:brightness-110 disabled:opacity-40"
+                      >
+                        Confirmar riesgo {selected.risk_level}
+                      </button>
+
+                      <div className="rounded-2xl border border-pine-900/10 p-3">
+                        <p className="text-[12px] font-semibold text-pine-900/70">
+                          Corregir el nivel
+                        </p>
+                        <div className="mt-2 flex gap-1.5">
+                          {(["bajo", "medio", "alto"] as RiskLevel[]).map(
+                            (lvl) => (
+                              <button
+                                key={lvl}
+                                onClick={() => setNivelAjustado(lvl)}
+                                className={`flex-1 rounded-full border py-1.5 text-[12px] font-semibold capitalize transition-all ${
+                                  nivelAjustado === lvl
+                                    ? "border-leaf-600 bg-leaf-600/10 text-pine-900"
+                                    : "border-pine-900/10 text-pine-900/50 hover:text-pine-900/70"
+                                }`}
+                              >
+                                {lvl}
+                              </button>
+                            )
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Motivo de la corrección..."
+                          value={motivoAjuste}
+                          onChange={(e) => setMotivoAjuste(e.target.value)}
+                          className="mt-2 w-full rounded-full border border-pine-900/10 bg-white px-4 py-2.5 text-[13.5px] text-pine-900 placeholder:text-pine-900/30 focus:border-leaf-500/60 focus:outline-none"
+                        />
+                        <button
+                          onClick={() =>
+                            riskMutation.mutate({
+                              id: selected.id,
+                              decision: "ajustado",
+                              nivel: nivelAjustado,
+                              motivo: motivoAjuste.trim(),
+                            })
+                          }
+                          disabled={
+                            !motivoAjuste.trim() || riskMutation.isPending
+                          }
+                          className="mt-2 w-full rounded-full border border-pine-900/15 py-2 text-[12.5px] font-semibold text-pine-900/70 transition-all hover:bg-pine-900/5 disabled:opacity-40"
+                        >
+                          Guardar corrección
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Panel: Informe de evaluación y derivación */}
+                  {actionTab === "report" && (
+                    <div className="mt-3 space-y-2">
+                      <p className="text-[11.5px] text-pine-900/50">
+                        El informe queda guardado en el expediente del
+                        estudiante, junto con el resto de su historial.
+                      </p>
+                      <textarea
+                        placeholder="Evidencia observada y conclusión de la evaluación..."
+                        value={informe}
+                        onChange={(e) => setInforme(e.target.value)}
+                        rows={4}
+                        className="w-full rounded-2xl border border-pine-900/10 bg-white px-4 py-2.5 text-[13.5px] text-pine-900 placeholder:text-pine-900/30 focus:border-leaf-500/60 focus:outline-none"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Derivación a especialista (opcional)..."
+                        value={derivacion}
+                        onChange={(e) => setDerivacion(e.target.value)}
+                        className="w-full rounded-full border border-pine-900/10 bg-white px-4 py-2.5 text-[13.5px] text-pine-900 placeholder:text-pine-900/30 focus:border-leaf-500/60 focus:outline-none"
+                      />
+                      <label className="flex items-center gap-2 px-1 text-[12.5px] text-pine-900/60">
+                        <input
+                          type="checkbox"
+                          checked={comunicado}
+                          onChange={(e) => setComunicado(e.target.checked)}
+                          className="h-4 w-4 rounded border-pine-900/20 accent-leaf-600"
+                        />
+                        Ya comuniqué los resultados al estudiante
+                      </label>
+                      <button
+                        onClick={() =>
+                          reportMutation.mutate({
+                            id: selected.id,
+                            contenido: informe.trim(),
+                            derivacion: derivacion.trim() || undefined,
+                            comunicado,
+                          })
+                        }
+                        disabled={!informe.trim() || reportMutation.isPending}
+                        className="w-full rounded-full bg-leaf-600 py-2.5 text-[13px] font-semibold text-white shadow-md transition-all hover:brightness-110 disabled:opacity-40"
+                      >
+                        Registrar informe
+                      </button>
+                    </div>
+                  )}
 
                   {/* Panel: Nota interna */}
                   {actionTab === "note" && (
