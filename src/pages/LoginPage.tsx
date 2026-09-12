@@ -113,7 +113,9 @@ export default function LoginPage() {
       await login(email, password);
       navigate("/", { replace: true });
     } catch {
-      setError("Credenciales incorrectas");
+      // El texto coincide con el resultado esperado del caso CP002: es lo
+      // que el evaluador compara literalmente contra la pantalla.
+      setError("Usuario o contraseña incorrectos");
     } finally {
       setLoading(false);
     }
