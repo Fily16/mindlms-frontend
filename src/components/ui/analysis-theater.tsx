@@ -164,10 +164,6 @@ function TheaterContent({
   // Así el usuario puede ver el resto del dashboard sin perder el
   // análisis en curso (siempre está a un click de re-expandirse).
   const [minimized, setMinimized] = useState(false);
-  // Después de la animación height:0→auto, quitamos el overflow-hidden
-  // para que el contenido que aparece dinámicamente (marcadores, veredicto)
-  // no quede cortado si crece más allá del height "auto" inicial.
-  const [entryDone, setEntryDone] = useState(false);
 
   // Fases: typewriter → pseudocódigo → resultado
   useEffect(() => {
@@ -215,7 +211,6 @@ function TheaterContent({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-      onAnimationComplete={() => setEntryDone(true)}
       className="fixed left-1/2 -translate-x-1/2 top-[76px] bottom-4 w-[min(96vw,900px)] z-[95] pointer-events-none"
     >
       <div className="h-full pointer-events-auto">
