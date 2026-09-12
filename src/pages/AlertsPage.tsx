@@ -781,12 +781,12 @@ export default function AlertsPage() {
                         disabled={riskMutation.isPending}
                         className="w-full rounded-full bg-leaf-600 py-2.5 text-[13px] font-semibold text-white shadow-md transition-all hover:brightness-110 disabled:opacity-40"
                       >
-                        Confirmar riesgo {selected.risk_level}
+                        Confirmar clasificación
                       </button>
 
                       <div className="rounded-2xl border border-pine-900/10 p-3">
                         <p className="text-[12px] font-semibold text-pine-900/70">
-                          Corregir el nivel
+                          Ajustar el nivel de riesgo
                         </p>
                         <div className="mt-2 flex gap-1.5">
                           {(["bajo", "medio", "alto"] as RiskLevel[]).map(
@@ -807,7 +807,7 @@ export default function AlertsPage() {
                         </div>
                         <input
                           type="text"
-                          placeholder="Motivo de la corrección..."
+                          placeholder="Justificación clínica del ajuste..."
                           value={motivoAjuste}
                           onChange={(e) => setMotivoAjuste(e.target.value)}
                           className="mt-2 w-full rounded-full border border-pine-900/10 bg-white px-4 py-2.5 text-[13.5px] text-pine-900 placeholder:text-pine-900/30 focus:border-leaf-500/60 focus:outline-none"
@@ -826,7 +826,7 @@ export default function AlertsPage() {
                           }
                           className="mt-2 w-full rounded-full border border-pine-900/15 py-2 text-[12.5px] font-semibold text-pine-900/70 transition-all hover:bg-pine-900/5 disabled:opacity-40"
                         >
-                          Guardar corrección
+                          Guardar ajuste
                         </button>
                       </div>
                     </div>
@@ -860,7 +860,7 @@ export default function AlertsPage() {
                           onChange={(e) => setComunicado(e.target.checked)}
                           className="h-4 w-4 rounded border-pine-900/20 accent-leaf-600"
                         />
-                        Ya comuniqué los resultados al estudiante
+                        Resultados comunicados al estudiante
                       </label>
                       <button
                         onClick={() =>
@@ -874,7 +874,7 @@ export default function AlertsPage() {
                         disabled={!informe.trim() || reportMutation.isPending}
                         className="w-full rounded-full bg-leaf-600 py-2.5 text-[13px] font-semibold text-white shadow-md transition-all hover:brightness-110 disabled:opacity-40"
                       >
-                        Registrar informe
+                        Guardar informe
                       </button>
                     </div>
                   )}

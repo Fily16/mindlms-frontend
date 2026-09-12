@@ -56,6 +56,10 @@ export function useAlertToasts() {
   const nextId = useRef(1);
 
   const pushAlert = useCallback((e: ToastEvent) => {
+    // Un caso de riesgo bajo se registra y sigue en monitoreo, pero no
+    // interrumpe al psicólogo: avisar de cada texto sano convertiría la
+    // pantalla en ruido y restaría valor a los avisos que sí importan.
+    if (e.risk_level === "bajo") return;
     pending.current.push(e);
     if (pending.current.length > MAX_QUEUE) {
       // conservar lo más severo cuando hay avalancha
