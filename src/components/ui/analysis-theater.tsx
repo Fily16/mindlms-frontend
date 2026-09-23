@@ -211,11 +211,13 @@ function TheaterContent({
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
-      className="fixed left-1/2 -translate-x-1/2 top-[76px] bottom-4 w-[min(96vw,900px)] z-[95] pointer-events-none"
+      // Minimizado: sin bottom-4/h-full, para que la caja se encoja al
+      // header en vez de seguir ocupando la pantalla con el cuerpo vacío.
+      className={`fixed left-1/2 -translate-x-1/2 top-[76px] w-[min(96vw,900px)] z-[95] pointer-events-none ${minimized ? "" : "bottom-4"}`}
     >
-      <div className="h-full pointer-events-auto">
+      <div className={`pointer-events-auto ${minimized ? "" : "h-full"}`}>
         <div
-          className="theater theater-scroll relative rounded-2xl border border-white/12 bg-black shadow-2xl overflow-y-auto overflow-x-hidden h-full"
+          className={`theater theater-scroll relative rounded-2xl border border-white/12 bg-black shadow-2xl overflow-y-auto overflow-x-hidden ${minimized ? "" : "h-full"}`}
           style={{
             boxShadow: `0 20px 60px ${color}30, 0 0 0 1px ${color}22`,
             overscrollBehavior: "contain",
