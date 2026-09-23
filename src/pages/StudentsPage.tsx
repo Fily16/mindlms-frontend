@@ -163,7 +163,7 @@ export default function StudentsPage() {
     queryFn: () =>
       dashboardService.getStudents({
         ...(riskFilter ? { risk_level: riskFilter } : {}),
-        limit: 200, // tope del backend: que el filtro muestre a todos
+        limit: 1000, // tope del backend: la búsqueda y los contadores ven a todos
       }),
   });
 
