@@ -158,20 +158,40 @@ function ScrollBar({
   );
 }
 
+/**
+ * Porcentajes enteros que suman exactamente 100 (método del mayor resto).
+ * Con toFixed(0) por separado, 3 niveles podían sumar 99 % o 101 % (HU0007).
+ */
+function roundedPercents(values: number[]): number[] {
+  const total = values.reduce((s, v) => s + v, 0);
+  if (total <= 0) return values.map(() => 0);
+  const raw = values.map((v) => (v / total) * 100);
+  const base = raw.map(Math.floor);
+  let resto = 100 - base.reduce((s, v) => s + v, 0);
+  const orden = raw
+    .map((r, i) => ({ i, frac: r - Math.floor(r) }))
+    .sort((a, b) => b.frac - a.frac);
+  for (const { i } of orden) {
+    if (resto <= 0) break;
+    base[i] += 1;
+    resto -= 1;
+  }
+  return base;
+}
+
 function LegendRow({
   p,
   name,
   value,
-  total,
+  pct,
   color,
 }: {
   p: MotionValue<number>;
   name: string;
   value: number;
-  total: number;
+  pct: number;
   color: string;
 }) {
-  const pct = total > 0 ? (value / total) * 100 : 0;
   const width = useTransform(p, (v) => `${pct * v}%`);
   return (
     <div>
@@ -179,7 +199,7 @@ function LegendRow({
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
         <span className="font-semibold text-pine-900/80">{name}</span>
         <span className="ml-auto font-bold text-pine-900">
-          {pct.toFixed(0)}%
+          {pct}%
         </span>
       </div>
       <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-mint-100">
@@ -307,6 +327,7 @@ function DashboardJourney({
     color: RISK_COLORS[level],
   }));
   const totalRisk = distData.reduce((s, d) => s + d.value, 0);
+  const pcts = roundedPercents(distData.map((d) => d.value));
   const maxBar = Math.max(...distData.map((d) => d.value), 1);
 
   // Fracciones acumuladas para los segmentos del donut
@@ -593,13 +614,13 @@ function DashboardJourney({
                     </div>
 
                     <div className="flex w-full flex-1 flex-col gap-4">
-                      {distData.map((d) => (
+                      {distData.map((d, i) => (
                         <LegendRow
                           key={d.level}
                           p={chartP}
                           name={d.name}
                           value={d.value}
-                          total={totalRisk}
+                          pct={pcts[i]}
                           color={d.color}
                         />
                       ))}

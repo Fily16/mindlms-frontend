@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { alertsService } from "../services/alerts.service";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { dashboardService } from "../services/dashboard.service";
 import { Reveal } from "../components/ui/reveal";
@@ -53,9 +54,13 @@ const levelChip: Record<string, { active: string; dot: string }> = {
 function StudentCaseCard({
   student,
   onOpen,
+  onAttend,
+  attending,
 }: {
   student: StudentSummary;
   onOpen: (id: string) => void;
+  onAttend: (id: string) => void;
+  attending: boolean;
 }) {
   const level = student.current_risk_level || student.risk_level || "bajo";
   const score = student.avg_risk_score ?? student.latest_score ?? 0;
@@ -95,9 +100,14 @@ function StudentCaseCard({
           {initials}
         </div>
 
-        <h3 className="mt-4 text-xl font-extrabold tracking-tight text-pine-900">
+        <button
+          type="button"
+          onClick={() => onOpen(student.student_id)}
+          title="Ver perfil e historial del estudiante"
+          className="mt-4 text-xl font-extrabold tracking-tight text-pine-900 underline-offset-4 hover:underline"
+        >
           {student.student_name || "Sin nombre"}
-        </h3>
+        </button>
         <span className="text-[12.5px] text-pine-900/40">
           ID: {student.student_id}
         </span>
@@ -137,11 +147,12 @@ function StudentCaseCard({
       </div>
 
       <button
-        onClick={() => onOpen(student.student_id)}
-        className="group flex w-full items-center justify-center gap-2 bg-pine-900 py-4 text-[14px] font-semibold text-white transition-colors hover:bg-pine-800"
+        onClick={() => onAttend(student.student_id)}
+        disabled={attending}
+        className="group flex w-full items-center justify-center gap-2 bg-pine-900 py-4 text-[14px] font-semibold text-white transition-colors hover:bg-pine-800 disabled:opacity-60"
       >
         <Bell size={15} />
-        Atender este caso
+        {attending ? "Registrando atención..." : "Atender este caso"}
         <ArrowRight
           size={15}
           className="transition-transform group-hover:translate-x-1"
@@ -157,6 +168,35 @@ export default function StudentsPage() {
   const initialRisk = searchParams.get("risk") || "";
   const [riskFilter, setRiskFilter] = useState(initialRisk);
   const [search, setSearch] = useState("");
+
+  const queryClient = useQueryClient();
+  // Mensaje de confirmación de "Atender este caso" (HU0015)
+  const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
+
+  // Contadores de los chips: SIEMPRE del total (no de la lista ya filtrada),
+  // para que al filtrar "Alto" los demás chips no caigan a 0 (HU0014).
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard-stats"],
+    queryFn: dashboardService.getStatistics,
+  });
+
+  const attendMutation = useMutation({
+    mutationFn: (studentId: string) => alertsService.attendStudent(studentId),
+    onSuccess: (r) => {
+      setAviso({
+        ok: true,
+        texto:
+          r.alertas_en_seguimiento > 0
+            ? `Atención iniciada: ${r.alertas_en_seguimiento} alerta(s) pasaron a "En seguimiento", asignadas a ${r.asignado_a}.`
+            : `El caso ya estaba en atención. Responsable: ${r.asignado_a}.`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["alert-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["recent-alerts"] });
+    },
+    onError: () =>
+      setAviso({ ok: false, texto: "No se pudo registrar la atención del caso." }),
+  });
 
   const { data: students = [], isLoading } = useQuery<StudentSummary[]>({
     queryKey: ["students", riskFilter],
@@ -175,12 +215,17 @@ export default function StudentsPage() {
       )
     : students;
 
-  const countByLevel = (level: string) =>
-    level
-      ? students.filter(
-          (s) => (s.current_risk_level || s.risk_level) === level
-        ).length
+  const countByLevel = (level: string) => {
+    const dist = stats?.risk_distribution as Record<string, number> | undefined;
+    if (dist) {
+      return level
+        ? dist[level] ?? 0
+        : Object.values(dist).reduce((a, b) => a + b, 0);
+    }
+    return level
+      ? students.filter((s) => (s.current_risk_level || s.risk_level) === level).length
       : students.length;
+  };
 
   const handleRiskChange = (value: string) => {
     setRiskFilter(value);
@@ -268,6 +313,25 @@ export default function StudentsPage() {
           </div>
         </Reveal>
 
+        {aviso && (
+          <div
+            role="status"
+            className={`mt-6 flex items-center justify-between gap-3 rounded-2xl px-5 py-3 text-[13.5px] font-medium ${
+              aviso.ok
+                ? "border border-leaf-600/20 bg-leaf-50 text-pine-900"
+                : "border border-alto-500/30 bg-alto-50 text-alto-700"
+            }`}
+          >
+            <span>{aviso.texto}</span>
+            <button
+              onClick={() => setAviso(null)}
+              className="text-[12px] font-semibold opacity-60 hover:opacity-100"
+            >
+              Cerrar
+            </button>
+          </div>
+        )}
+
         {/* Mazo de casos */}
         {isLoading ? (
           <div className="mt-14 flex flex-col items-center justify-center gap-3 rounded-3xl border border-pine-900/6 bg-white py-20 text-pine-900/40">
@@ -284,12 +348,20 @@ export default function StudentsPage() {
           </div>
         ) : (
           <div className="mt-12">
+            <p className="mb-4 text-center text-[13px] text-pine-900/55" data-testid="contador-estudiantes">
+              {filtered.length} estudiante{filtered.length !== 1 ? "s" : ""} cumplen el filtro
+            </p>
             <CaseDeck
               items={filtered}
               keyOf={(s) => s.student_id}
               label="estudiante"
               renderCard={(s) => (
-                <StudentCaseCard student={s} onOpen={openStudentAlerts} />
+                <StudentCaseCard
+                  student={s}
+                  onOpen={openStudentAlerts}
+                  onAttend={(id) => attendMutation.mutate(id)}
+                  attending={attendMutation.isPending && attendMutation.variables === s.student_id}
+                />
               )}
             />
           </div>

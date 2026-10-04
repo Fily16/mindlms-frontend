@@ -48,6 +48,53 @@ export interface Alert {
   status: AlertStatus;
   created_at: string;
   notes: AlertNote[];
+  /** Fecha del último cambio (estado, validación...) — HU0022 */
+  updated_at?: string | null;
+  /** Validación clínica del nivel del modelo — HU0026 / HU0027 */
+  risk_validated?: "confirmado" | "ajustado" | null;
+  risk_level_adjusted?: RiskLevel | null;
+  risk_adjust_reason?: string | null;
+  validated_at?: string | null;
+  /** Psicólogo que asumió el caso ("Atender este caso") — HU0015 */
+  assigned_to?: string | null;
+  /** Solo en el detalle */
+  status_history?: StatusChange[];
+  linguistic_evidence?: LinguisticEvidence | null;
+}
+
+export interface StatusChange {
+  de: AlertStatus | null;
+  a: AlertStatus;
+  por: string | null;
+  fecha: string;
+}
+
+/** Marcadores lingüísticos que activaron la alerta — HU0025 */
+export interface LinguisticEvidence {
+  marcadores: {
+    pronombres_primera_persona: string[];
+    negaciones: string[];
+    emociones_negativas: string[];
+    aislamiento: string[];
+    desesperanza: string[];
+  };
+  fragmentos_alto_riesgo: string[];
+}
+
+/** Conteos de los filtros del Centro de Alertas — HU0020 */
+export interface AlertCounts {
+  por_nivel: Record<RiskLevel, number>;
+  por_estado: Record<AlertStatus, number>;
+  total_nivel: number;
+  total_estado: number;
+}
+
+/** Indicador de extracción desde Moodle — HU0005 */
+export interface ExtractionStatus {
+  estado: "en_vivo" | "sin_conexion" | "sin_datos";
+  ultima_extraccion: string | null;
+  en_curso: boolean;
+  error: string | null;
 }
 
 export interface StudentSummary {

@@ -1,5 +1,5 @@
 import api from "./api";
-import type { Alert, RiskLevel, AlertStatus } from "../types";
+import type { Alert, AlertCounts, RiskLevel, AlertStatus } from "../types";
 
 export const alertsService = {
   async getAlerts(filters?: {
@@ -9,6 +9,16 @@ export const alertsService = {
     limit?: number;
   }): Promise<Alert[]> {
     const { data } = await api.get<Alert[]>("/alerts/", { params: filters });
+    return data;
+  },
+
+  /** Conteos por nivel y por estado, calculados en el backend (HU0020). */
+  async getCounts(filters?: {
+    risk_level?: RiskLevel;
+    status?: AlertStatus;
+    student_id?: string;
+  }): Promise<AlertCounts> {
+    const { data } = await api.get<AlertCounts>("/alerts/counts", { params: filters });
     return data;
   },
 
@@ -63,13 +73,38 @@ export const alertsService = {
   /** Registra el informe de evaluación en el expediente del estudiante. */
   async createReport(
     alertId: string,
-    args: { contenido: string; derivacion?: string; comunicado?: boolean }
+    args: {
+      contenido: string;
+      derivacion?: string;
+      comunicado?: boolean;
+      fechaComunicacion?: string;
+    }
   ): Promise<{ id: string }> {
     const { data } = await api.post(`/alerts/${alertId}/report`, {
       contenido: args.contenido,
       derivacion: args.derivacion || null,
       comunicado_al_estudiante: args.comunicado ?? false,
+      fecha_comunicacion: args.comunicado ? args.fechaComunicacion || null : null,
     });
+    return data;
+  },
+
+  /** Registra que se comunicaron los resultados de un informe (HU0031). */
+  async registerCommunication(reportId: string, fecha: string) {
+    const { data } = await api.patch(`/alerts/reports/${reportId}/communication`, {
+      fecha_comunicacion: fecha,
+    });
+    return data;
+  },
+
+  /** "Atender este caso": el psicólogo asume el caso (HU0015). */
+  async attendStudent(studentId: string): Promise<{
+    student_id: string;
+    alertas_en_seguimiento: number;
+    asignado_a: string;
+    fecha: string;
+  }> {
+    const { data } = await api.post(`/students/${encodeURIComponent(studentId)}/attend`);
     return data;
   },
 
@@ -81,6 +116,7 @@ export const alertsService = {
       contenido: string;
       derivacion: string | null;
       comunicado: boolean;
+      fecha_comunicacion?: string | null;
       fecha: string;
     }[]
   > {

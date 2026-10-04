@@ -68,7 +68,11 @@ export function useDetectionEvents(
   onAlertRef.current = onAlert;
 
   useEffect(() => {
-    const es = new EventSource(`${API_BASE}/ml/detect/events`);
+    // EventSource no permite cabeceras: el token viaja como query (HU0002).
+    const token = localStorage.getItem("access_token") ?? "";
+    const es = new EventSource(
+      `${API_BASE}/ml/detect/events?access_token=${encodeURIComponent(token)}`
+    );
 
     es.onmessage = (event) => {
       try {
@@ -100,6 +104,7 @@ export function useDetectionEvents(
 
         if (data.type === "detection_complete") {
           setIsDetecting(false);
+          queryClient.invalidateQueries({ queryKey: ["extraction-status"] });
           queryClient.invalidateQueries({ queryKey: ["students"] });
           queryClient.invalidateQueries({ queryKey: ["dashboard-stats"] });
           queryClient.invalidateQueries({ queryKey: ["recent-alerts"] });

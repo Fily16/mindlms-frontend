@@ -7,7 +7,9 @@ import {
   LiveAlertToasts,
   useAlertToasts,
 } from "./ui/live-alert-toasts";
-import { LayoutDashboard, Users, Bell, LogOut, Brain, Radar } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { mlService } from "../services/ml.service";
+import { LayoutDashboard, Users, Bell, LogOut, Brain, Radar, WifiOff } from "lucide-react";
 
 /**
  * Layout v3 — adiós sidebar estático.
@@ -59,6 +61,23 @@ function LayoutInner() {
       enqueueTheater(e);
     }
   });
+
+  // Indicador de extracción (HU0005): estado y hora de la última
+  // extracción desde Moodle. Se consulta cada 15 s y al llegar alertas.
+  const { data: extraction } = useQuery({
+    queryKey: ["extraction-status"],
+    queryFn: mlService.getExtractionStatus,
+    refetchInterval: 15_000,
+  });
+  const sinConexion = extraction?.estado === "sin_conexion";
+  const ultimaExtraccion = extraction?.ultima_extraccion
+    ? new Date(
+        extraction.ultima_extraccion.endsWith("Z") ||
+        extraction.ultima_extraccion.includes("+")
+          ? extraction.ultima_extraccion
+          : extraction.ultima_extraccion + "Z"
+      ).toLocaleTimeString("es-PE", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+    : null;
 
   const { scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 160, damping: 28 });
@@ -133,18 +152,28 @@ function LayoutInner() {
           {/* Estado + usuario */}
           <div className="flex shrink-0 items-center gap-2">
             <span
+              data-testid="indicador-extraccion"
               className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold sm:flex ${
-                isDetecting
-                  ? "bg-medio-500/15 text-medio-200"
-                  : "bg-leaf-500/12 text-leaf-200"
+                sinConexion
+                  ? "bg-alto-500/15 text-red-200"
+                  : isDetecting
+                    ? "bg-medio-500/15 text-medio-200"
+                    : "bg-leaf-500/12 text-leaf-200"
               }`}
               title={
-                isDetecting
-                  ? "El motor está analizando textos de Moodle ahora mismo"
-                  : "Conectado a Moodle, escuchando nuevos textos"
+                sinConexion
+                  ? `Sin conexión con Moodle${extraction?.error ? ": " + extraction.error : ""}`
+                  : isDetecting
+                    ? "El motor está analizando textos de Moodle ahora mismo"
+                    : "Conectado a Moodle, escuchando nuevos textos"
               }
             >
-              {isDetecting ? (
+              {sinConexion ? (
+                <>
+                  <WifiOff size={12} />
+                  Sin conexión
+                </>
+              ) : isDetecting ? (
                 <>
                   <Radar size={12} className="animate-spin" />
                   Analizando
@@ -154,6 +183,11 @@ function LayoutInner() {
                   <span className="h-1.5 w-1.5 rounded-full bg-leaf-400 animate-pulse-soft" />
                   En vivo
                 </>
+              )}
+              {ultimaExtraccion && (
+                <span className="font-normal opacity-70">
+                  · últ. extracción {ultimaExtraccion}
+                </span>
               )}
             </span>
 

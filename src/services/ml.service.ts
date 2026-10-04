@@ -1,4 +1,5 @@
 import api from "./api";
+import type { ExtractionStatus } from "../types";
 
 export interface MLTaskStatus {
   state: "idle" | "running" | "completed" | "failed";
@@ -27,6 +28,12 @@ export const mlService = {
 
   async startDetection() {
     const { data } = await api.post("/ml/detect");
+    return data;
+  },
+
+  /** Estado y hora de la última extracción desde Moodle (HU0005). */
+  async getExtractionStatus(): Promise<ExtractionStatus> {
+    const { data } = await api.get<ExtractionStatus>("/ml/extraction/status");
     return data;
   },
 
