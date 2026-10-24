@@ -349,7 +349,8 @@ export default function StudentsPage() {
         ) : (
           <div className="mt-12">
             <p className="mb-4 text-center text-[13px] text-pine-900/55" data-testid="contador-estudiantes">
-              {filtered.length} estudiante{filtered.length !== 1 ? "s" : ""} cumplen el filtro
+              {filtered.length} estudiante{filtered.length !== 1 ? "s" : ""}{" "}
+              {filtered.length === 1 ? "cumple" : "cumplen"} el filtro
             </p>
             <CaseDeck
               items={filtered}

@@ -452,7 +452,7 @@ function DashboardJourney({
               transition={{ delay: 0.2 }}
               className="text-[13px] font-semibold tracking-[0.3em] text-leaf-700 uppercase"
             >
-              Bienestar estudiantil en tiempo real
+              Bienestar Estudiantil en Tiempo Real
             </motion.p>
 
             <motion.div
