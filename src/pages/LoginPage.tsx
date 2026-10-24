@@ -112,10 +112,16 @@ export default function LoginPage() {
     try {
       await login(email, password);
       navigate("/", { replace: true });
-    } catch {
-      // El texto coincide con el resultado esperado del caso CP002: es lo
-      // que el evaluador compara literalmente contra la pantalla.
-      setError("Usuario o contraseña incorrectos");
+    } catch (err) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      // 403: credenciales correctas pero el rol no es de psicólogo (HU0002-3).
+      // Cualquier otro error: el texto coincide con el resultado esperado
+      // del caso CP002, que el evaluador compara literalmente.
+      setError(
+        status === 403
+          ? "Tu usuario no tiene permisos para acceder al Panel Psicológico"
+          : "Usuario o contraseña incorrectos"
+      );
     } finally {
       setLoading(false);
     }

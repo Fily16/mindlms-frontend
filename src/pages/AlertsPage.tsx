@@ -20,6 +20,22 @@ import {
 } from "lucide-react";
 import type { Alert, AlertStatus, RiskLevel } from "../types";
 
+const hoyISO = () => new Date().toLocaleDateString("en-CA"); // AAAA-MM-DD local
+const fechaHora = (iso?: string | null) =>
+  iso
+    ? new Date(iso.endsWith("Z") || iso.includes("+") ? iso : iso + "Z").toLocaleString("es-PE", {
+        dateStyle: "short",
+        timeStyle: "short",
+      })
+    : "—";
+const MARCADOR_LABEL: Record<string, string> = {
+  pronombres_primera_persona: "Pronombres de 1.ª persona",
+  negaciones: "Negaciones",
+  emociones_negativas: "Emociones negativas",
+  aislamiento: "Aislamiento",
+  desesperanza: "Desesperanza",
+};
+
 /**
  * Centro de alertas v3.
  *
@@ -213,6 +229,11 @@ export default function AlertsPage() {
   const [informe, setInforme] = useState("");
   const [derivacion, setDerivacion] = useState("");
   const [comunicado, setComunicado] = useState(false);
+  const [fechaComunicacion, setFechaComunicacion] = useState(hoyISO());
+  // Cambio de estado en dos pasos: elegir y confirmar (HU0022-3)
+  const [estadoPendiente, setEstadoPendiente] = useState<AlertStatus | null>(null);
+  // Registro de comunicación sobre un informe ya guardado (HU0031)
+  const [comunicando, setComunicando] = useState<{ id: string; fecha: string } | null>(null);
 
   // Expediente del estudiante que se está consultando: informes previos.
   // Se recarga junto con las alertas para que un informe recién guardado
@@ -227,6 +248,19 @@ export default function AlertsPage() {
     queryKey: ["alerts", riskFilter, statusFilter, studentFilter],
     queryFn: () =>
       alertsService.getAlerts({
+        ...(riskFilter ? { risk_level: riskFilter as RiskLevel } : {}),
+        ...(statusFilter ? { status: statusFilter as AlertStatus } : {}),
+        ...(studentFilter ? { student_id: studentFilter } : {}),
+        limit: 1000,
+      }),
+  });
+
+  // Conteos de los chips calculados en el backend sobre TODAS las alertas
+  // (no sobre la página cargada) — HU0020.
+  const { data: counts } = useQuery({
+    queryKey: ["alert-counts", riskFilter, statusFilter, studentFilter],
+    queryFn: () =>
+      alertsService.getCounts({
         ...(riskFilter ? { risk_level: riskFilter as RiskLevel } : {}),
         ...(statusFilter ? { status: statusFilter as AlertStatus } : {}),
         ...(studentFilter ? { student_id: studentFilter } : {}),
@@ -251,11 +285,12 @@ export default function AlertsPage() {
   const statusMutation = useMutation({
     mutationFn: ({ id, status }: { id: string; status: AlertStatus }) =>
       alertsService.updateStatus(id, status),
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
+      setEstadoPendiente(null);
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
-      if (selected) {
-        alertsService.getAlertDetail(selected.id).then(setSelected);
-      }
+      queryClient.invalidateQueries({ queryKey: ["alert-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["recent-alerts"] });
+      alertsService.getAlertDetail(vars.id).then(setSelected);
     },
   });
 
@@ -296,6 +331,7 @@ export default function AlertsPage() {
             : `Riesgo corregido a ${data.nivel_final}. Queda registrado el motivo.`,
       });
       queryClient.invalidateQueries({ queryKey: ["alerts"] });
+      if (selected) alertsService.getAlertDetail(selected.id).then(setSelected);
     },
     onError: () =>
       setMsgFeedback({
@@ -310,11 +346,13 @@ export default function AlertsPage() {
       contenido: string;
       derivacion?: string;
       comunicado?: boolean;
+      fechaComunicacion?: string;
     }) =>
       alertsService.createReport(args.id, {
         contenido: args.contenido,
         derivacion: args.derivacion,
         comunicado: args.comunicado,
+        fechaComunicacion: args.fechaComunicacion,
       }),
     onSuccess: () => {
       setInforme("");
@@ -368,17 +406,54 @@ export default function AlertsPage() {
   });
 
   function openDetail(alert: Alert) {
+    setEstadoPendiente(null);
     alertsService.getAlertDetail(alert.id).then(setSelected);
   }
+
+  const communicationMutation = useMutation({
+    mutationFn: (args: { id: string; fecha: string }) =>
+      alertsService.registerCommunication(args.id, args.fecha),
+    onSuccess: () => {
+      setComunicando(null);
+      queryClient.invalidateQueries({ queryKey: ["student-reports"] });
+    },
+  });
 
   function clearStudentFilter() {
     setSearchParams({});
   }
 
   const countByStatus = (status: string) =>
-    status ? alerts.filter((a) => a.status === status).length : alerts.length;
+    counts
+      ? status
+        ? counts.por_estado[status as AlertStatus] ?? 0
+        : counts.total_estado
+      : status
+        ? alerts.filter((a) => a.status === status).length
+        : alerts.length;
   const countByRisk = (risk: string) =>
-    risk ? alerts.filter((a) => a.risk_level === risk).length : alerts.length;
+    counts
+      ? risk
+        ? counts.por_nivel[risk as RiskLevel] ?? 0
+        : counts.total_nivel
+      : risk
+        ? alerts.filter((a) => a.risk_level === risk).length
+        : alerts.length;
+
+  // Perfil resumido del estudiante consultado (HU0016)
+  const perfil =
+    studentFilter && alerts.length > 0
+      ? {
+          nivel: alerts.some((a) => a.risk_level === "alto")
+            ? "alto"
+            : alerts.some((a) => a.risk_level === "medio")
+              ? "medio"
+              : "bajo",
+          score: alerts.reduce((s, a) => s + (a.risk_score ?? 0), 0) / alerts.length,
+          total: alerts.length,
+          enSeguimiento: alerts.filter((a) => a.status === "en_seguimiento").length,
+        }
+      : null;
 
   const studentName =
     studentFilter && alerts.length > 0 ? alerts[0].student_name : "";
@@ -418,6 +493,31 @@ export default function AlertsPage() {
             )}
           </p>
 
+          {/* Perfil del estudiante consultado (HU0016) */}
+          {perfil && (
+            <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="perfil-estudiante">
+              {[
+                { lbl: "Nivel actual", val: perfil.nivel.charAt(0).toUpperCase() + perfil.nivel.slice(1) },
+                { lbl: "Score promedio", val: `${(perfil.score * 100).toFixed(0)}%` },
+                { lbl: "Alertas", val: String(perfil.total) },
+                { lbl: "En seguimiento", val: String(perfil.enSeguimiento) },
+              ].map(({ lbl, val }) => (
+                <div key={lbl} className="rounded-2xl bg-white/70 px-4 py-3">
+                  <div className="text-[10.5px] font-semibold tracking-wide text-pine-900/40 uppercase">
+                    {lbl}
+                  </div>
+                  <div className="mt-0.5 text-[15px] font-bold text-pine-900">{val}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {studentFilter && expediente.length === 0 && (
+            <p className="mt-4 text-[13px] text-pine-900/45">
+              Expediente: el estudiante aún no tiene informes de evaluación registrados.
+            </p>
+          )}
+
           {/* Expediente: informes previos del estudiante consultado */}
           {studentFilter && expediente.length > 0 && (
             <div className="mt-5 rounded-2xl border border-pine-900/10 bg-white/60 p-4">
@@ -439,9 +539,45 @@ export default function AlertsPage() {
                       {r.comunicado && (
                         <span className="rounded-full bg-leaf-600/10 px-2 py-0.5 font-semibold text-leaf-700">
                           Comunicado al estudiante
+                          {r.fecha_comunicacion
+                            ? ` el ${new Date(r.fecha_comunicacion).toLocaleDateString("es-PE")}`
+                            : ""}
                         </span>
                       )}
+                      {!r.comunicado && comunicando?.id !== r.id && (
+                        <button
+                          onClick={() => setComunicando({ id: r.id, fecha: hoyISO() })}
+                          className="rounded-full border border-leaf-600/30 px-2 py-0.5 font-semibold text-leaf-700 hover:bg-leaf-600/10"
+                        >
+                          Registrar comunicación
+                        </button>
+                      )}
                     </div>
+                    {comunicando?.id === r.id && (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-mint-50 px-3 py-2 text-[12.5px]">
+                        <span>Resultados y plan de seguimiento comunicados el</span>
+                        <input
+                          type="date"
+                          required
+                          value={comunicando.fecha}
+                          onChange={(e) => setComunicando({ id: r.id, fecha: e.target.value })}
+                          className="rounded-md border border-pine-900/15 px-2 py-1"
+                        />
+                        <button
+                          disabled={!comunicando.fecha || communicationMutation.isPending}
+                          onClick={() => communicationMutation.mutate(comunicando)}
+                          className="rounded-full bg-leaf-600 px-3 py-1 font-semibold text-white disabled:opacity-40"
+                        >
+                          Guardar
+                        </button>
+                        <button onClick={() => setComunicando(null)} className="text-pine-900/50">
+                          Cancelar
+                        </button>
+                        {!comunicando.fecha && (
+                          <span className="text-alto-700">La fecha de la comunicación es obligatoria.</span>
+                        )}
+                      </div>
+                    )}
                     <p className="mt-1.5 text-[13.5px] leading-relaxed text-pine-900/80">
                       {r.contenido}
                     </p>
@@ -545,9 +681,15 @@ export default function AlertsPage() {
           <div className="mt-14 flex flex-col items-center justify-center gap-2 rounded-3xl border border-pine-900/6 bg-white py-20 text-pine-900/40">
             <CheckCircle2 size={32} strokeWidth={1.5} className="text-leaf-600" />
             <p className="text-[15px] font-semibold text-pine-900/70">
-              No hay alertas con estos filtros
+              {riskFilter || statusFilter || studentFilter
+                ? "No hay alertas con estos filtros"
+                : "No existen alertas registradas"}
             </p>
-            <span className="text-[12.5px]">Prueba ajustando los criterios</span>
+            <span className="text-[12.5px]">
+              {riskFilter || statusFilter || studentFilter
+                ? "Prueba ajustando los criterios"
+                : "Cuando el sistema detecte un caso aparecerá aquí"}
+            </span>
           </div>
         ) : (
           <div className="mt-12">
@@ -611,7 +753,7 @@ export default function AlertsPage() {
 
               <div className="flex-1 overflow-y-auto px-7 py-6">
                 {/* Meta */}
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
                   {[
                     {
                       lbl: "Score",
@@ -619,6 +761,7 @@ export default function AlertsPage() {
                     },
                     { lbl: "Fuente", val: formatSource(selected.source) },
                     { lbl: "Estado", val: formatStatus(selected.status) },
+                    { lbl: "Último cambio", val: fechaHora(selected.updated_at) },
                     {
                       lbl: "Fecha",
                       val: new Date(selected.created_at).toLocaleDateString(
@@ -654,6 +797,65 @@ export default function AlertsPage() {
                   </p>
                 </div>
 
+                {/* Validación clínica registrada (HU0026 / HU0027) */}
+                {selected.risk_validated && (
+                  <div
+                    className="mt-4 rounded-2xl border border-leaf-600/20 bg-leaf-50 px-4 py-3 text-[13px] text-pine-900/80"
+                    data-testid="validacion-riesgo"
+                  >
+                    {selected.risk_validated === "confirmado" ? (
+                      <>
+                        <strong>Clasificación confirmada</strong> por el psicólogo el{" "}
+                        {fechaHora(selected.validated_at)}. Nivel: {selected.risk_level}.
+                      </>
+                    ) : (
+                      <>
+                        <strong>Nivel ajustado a {selected.risk_level_adjusted}</strong> (modelo:{" "}
+                        {selected.risk_level}) el {fechaHora(selected.validated_at)}. Motivo:{" "}
+                        {selected.risk_adjust_reason}
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Marcadores lingüísticos que activaron la alerta (HU0025) */}
+                {selected.linguistic_evidence && (
+                  <div className="mt-6" data-testid="marcadores">
+                    <h3 className="flex items-center gap-1.5 text-[12px] font-bold tracking-wide text-pine-900/50 uppercase">
+                      <Eye size={13} />
+                      Marcadores lingüísticos
+                    </h3>
+                    {Object.values(selected.linguistic_evidence.marcadores).every((v) => !v.length) &&
+                    !selected.linguistic_evidence.fragmentos_alto_riesgo.length ? (
+                      <p className="mt-2 text-[13px] text-pine-900/45">
+                        No se detectaron marcadores lingüísticos en este texto.
+                      </p>
+                    ) : (
+                      <div className="mt-2 space-y-1.5">
+                        {Object.entries(selected.linguistic_evidence.marcadores)
+                          .filter(([, v]) => v.length)
+                          .map(([k, v]) => (
+                            <div key={k} className="flex flex-wrap items-center gap-1.5 text-[12.5px]">
+                              <span className="w-44 font-semibold text-pine-900/70">
+                                {MARCADOR_LABEL[k] ?? k}
+                              </span>
+                              {v.map((w) => (
+                                <span key={w} className="rounded-full bg-mint-100 px-2 py-0.5 text-pine-900/75">
+                                  {w}
+                                </span>
+                              ))}
+                            </div>
+                          ))}
+                        {selected.linguistic_evidence.fragmentos_alto_riesgo.map((f, i) => (
+                          <p key={i} className="rounded-lg bg-alto-50 px-3 py-1.5 text-[12.5px] text-alto-700">
+                            Patrón de alto riesgo: {f}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Cambiar estado */}
                 <div className="mt-6">
                   <h3 className="flex items-center gap-1.5 text-[12px] font-bold tracking-wide text-pine-900/50 uppercase">
@@ -667,12 +869,7 @@ export default function AlertsPage() {
                         <button
                           key={opt.value}
                           disabled={isCurrent || statusMutation.isPending}
-                          onClick={() =>
-                            statusMutation.mutate({
-                              id: selected.id,
-                              status: opt.value,
-                            })
-                          }
+                          onClick={() => setEstadoPendiente(opt.value)}
                           className={`rounded-full px-4 py-2 text-[12.5px] font-semibold transition-all ${
                             isCurrent
                               ? "bg-pine-900 text-white"
@@ -685,6 +882,39 @@ export default function AlertsPage() {
                     })}
                   </div>
                 </div>
+
+                {estadoPendiente && (
+                  <div className="mt-3 flex flex-wrap items-center gap-2 rounded-2xl border border-medio-500/30 bg-medio-50 px-4 py-3 text-[13px]">
+                    <span>
+                      ¿Cambiar el estado a <strong>{formatStatus(estadoPendiente)}</strong>?
+                    </span>
+                    <button
+                      onClick={() =>
+                        statusMutation.mutate({ id: selected.id, status: estadoPendiente })
+                      }
+                      disabled={statusMutation.isPending}
+                      className="rounded-full bg-pine-900 px-4 py-1.5 text-[12.5px] font-semibold text-white disabled:opacity-50"
+                    >
+                      Confirmar
+                    </button>
+                    <button
+                      onClick={() => setEstadoPendiente(null)}
+                      className="rounded-full border border-pine-900/15 px-4 py-1.5 text-[12.5px] font-semibold text-pine-900/70"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                )}
+                {!!selected.status_history?.length && (
+                  <ul className="mt-3 space-y-1 text-[12px] text-pine-900/55" data-testid="historial-estados">
+                    {selected.status_history.map((h, i) => (
+                      <li key={i}>
+                        {fechaHora(h.fecha)} · {h.de ? formatStatus(h.de) : "—"} → {formatStatus(h.a)}
+                        {h.por ? ` · ${h.por}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
 
                 {/* Notas + Mensaje al alumno (2 pestañas) */}
                 <div className="mt-6">
@@ -862,6 +1092,21 @@ export default function AlertsPage() {
                         />
                         Resultados comunicados al estudiante
                       </label>
+                      {comunicado && (
+                        <label className="flex flex-wrap items-center gap-2 px-1 text-[12.5px] text-pine-900/60">
+                          Fecha de la comunicación
+                          <input
+                            type="date"
+                            required
+                            value={fechaComunicacion}
+                            onChange={(e) => setFechaComunicacion(e.target.value)}
+                            className="rounded-md border border-pine-900/15 px-2 py-1"
+                          />
+                          {!fechaComunicacion && (
+                            <span className="text-alto-700">La fecha de la comunicación es obligatoria.</span>
+                          )}
+                        </label>
+                      )}
                       <button
                         onClick={() =>
                           reportMutation.mutate({
@@ -869,9 +1114,14 @@ export default function AlertsPage() {
                             contenido: informe.trim(),
                             derivacion: derivacion.trim() || undefined,
                             comunicado,
+                            fechaComunicacion: comunicado ? fechaComunicacion : undefined,
                           })
                         }
-                        disabled={!informe.trim() || reportMutation.isPending}
+                        disabled={
+                          !informe.trim() ||
+                          (comunicado && !fechaComunicacion) ||
+                          reportMutation.isPending
+                        }
                         className="w-full rounded-full bg-leaf-600 py-2.5 text-[13px] font-semibold text-white shadow-md transition-all hover:brightness-110 disabled:opacity-40"
                       >
                         Guardar informe

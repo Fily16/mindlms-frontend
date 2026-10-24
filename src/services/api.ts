@@ -27,8 +27,12 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    // En /auth/login un 401 es "credenciales inválidas": lo muestra la
+    // pantalla de login, no hay que redirigir (recargaría el formulario).
+    const isLogin = String(error.config?.url ?? "").includes("/auth/login");
+    if (error.response?.status === 401 && !isLogin) {
       localStorage.removeItem("access_token");
+      localStorage.removeItem("user_info");
       window.location.href = "/login";
     }
     return Promise.reject(error);
