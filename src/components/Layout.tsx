@@ -56,8 +56,9 @@ function LayoutInner() {
 
   const isDetecting = useDetectionEvents((e) => {
     pushAlert({ ...e, kind: "live" });
-    // Encolar solo si viene con texto (necesario para el panel)
-    if (e.text && e.text.length > 0) {
+    // Encolar solo si viene con texto (necesario para el panel). El riesgo
+    // bajo queda registrado, pero no interrumpe al psicólogo (HU0036).
+    if (e.text && e.text.length > 0 && e.risk_level !== "bajo") {
       enqueueTheater(e);
     }
   });
